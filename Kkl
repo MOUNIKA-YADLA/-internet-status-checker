@@ -1,0 +1,131 @@
+import java.nio.file.*;
+import java.util.*;
+import java.util.regex.*;
+
+public class ScriptValidator {
+
+    private static final Pattern COMMAND =
+            Pattern.compile(".*\\b(java|python|python3|curl|wget|sqlplus|spark-submit|sh|bash)\\b.*");
+
+    public void validate(Path file) throws Exception {
+
+        List<String> lines = Files.readAllLines(file);
+
+        for (int i = 0; i < lines.size(); i++) {
+
+            String line = lines.get(i);
+
+            Matcher matcher = COMMAND.matcher(line);
+
+            if (!matcher.matches())
+                continue;
+
+            int end = Math.min(i + 8, lines.size());
+
+            List<String> block = lines.subList(i, end);
+
+            checkExitCode(file, i, line, block);
+
+            checkLogging(file, i, line, block);
+
+            checkRetry(file, i, line, block);
+
+            checkTimeout(file, i, line);
+
+        }
+
+        checkSetE(file, lines);
+
+    }
+
+    private void checkExitCode(Path file,
+                               int line,
+                               String cmd,
+                               List<String> block) {
+
+        boolean found = block.stream()
+                .anyMatch(s -> s.contains("$?") ||
+                               s.contains("rc="));
+
+        if (!found)
+            report(file, line, cmd,
+                    "Exit code not checked",
+                    "HIGH");
+    }
+
+    private void checkLogging(Path file,
+                              int line,
+                              String cmd,
+                              List<String> block) {
+
+        boolean found = block.stream()
+                .anyMatch(s -> s.contains("echo") ||
+                               s.contains("logger"));
+
+        if (!found)
+            report(file, line,
+                    cmd,
+                    "No logging",
+                    "HIGH");
+    }
+
+    private void checkRetry(Path file,
+                            int line,
+                            String cmd,
+                            List<String> block) {
+
+        boolean found = block.stream()
+                .anyMatch(s -> s.contains("while") ||
+                               s.contains("until") ||
+                               s.contains("retry"));
+
+        if (!found)
+            report(file,
+                    line,
+                    cmd,
+                    "Retry missing",
+                    "MEDIUM");
+    }
+
+    private void checkTimeout(Path file,
+                              int line,
+                              String cmd) {
+
+        if (!cmd.contains("timeout"))
+            report(file,
+                    line,
+                    cmd,
+                    "Timeout missing",
+                    "LOW");
+    }
+
+    private void checkSetE(Path file,
+                           List<String> lines) {
+
+        boolean found = lines.stream()
+                .anyMatch(s -> s.contains("set -e"));
+
+        if (!found)
+            report(file,
+                    1,
+                    "SCRIPT",
+                    "Missing set -e",
+                    "MEDIUM");
+    }
+
+    private void report(Path file,
+                        int line,
+                        String cmd,
+                        String issue,
+                        String severity) {
+
+        System.out.println(
+                file + "," +
+                (line + 1) + "," +
+                cmd + "," +
+                issue + "," +
+                severity);
+
+    }
+
+}
